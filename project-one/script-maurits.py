@@ -9,18 +9,24 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, ExtraTreesRegressor
+from sklearn.linear_model import LinearRegression, SGDRegressor
+import xgboost as xgb
+from sklearn.svm import SVR
 
 # Read in data to big pandas df and setup time variable
-os.chdir('C:/Users/Jaimy/Documents/UVA/Datamining/Data-Mining/project-one/data/')
-big_df = pd.read_csv('dataset_mood_smartphone.csv')
+
+cwd = os.getcwd() # current working dir 
+big_df = pd.read_csv('/Users/Maurits/Documents/GitHub/School Projects/Data-Mining/project-one/data/dataset_mood_smartphone.csv')
 big_df['time'] = pd.to_datetime(big_df['time'])
+
 #%%
 # Get RMSE for vector of predictions and vector of targets
 def rmse(y, pred):
     return np.sqrt(np.mean(np.power(y - pred, 2)))
 # Function to extract a particular feature for a particular individual
 def get_feature(feature_name, indiv_id, big_df = big_df):
-    feature = big_df[big_df['variable']==feature_name]
+    feature = big_df[big_df['variable'] == feature_name]
     feature = feature[feature['id']==indiv_id][['time','value']]
     return feature.set_index(['time'])
 '''
@@ -47,37 +53,44 @@ def find_start_and_end_dates(series, num_nans = 4, max_crop = 100):
         elif found_nan_run:
             look_for_end = True
     return start, end
-def get_mood_and_create_time_index(current_indiv):
+    
+    
+    
+def get_mood_and_create_time_index(current_indiv, period =  '180T'):
     ### Get average mood per day for a particular individual ###
     mood_indiv = get_feature('mood', current_indiv)
     # Get average per day
-    #mood_indiv = mood_indiv.resample('d', how='mean')
     # Get average per 3 hour period
-    mood_indiv = mood_indiv.resample('180T', how='mean')
+    mood_indiv = mood_indiv.resample(period, how='mean')
     # Make sure we have every period covered over the 'core' date range
     start, end = find_start_and_end_dates(mood_indiv['value'], 10)
     mood_indiv = mood_indiv.reindex(
         pd.date_range(start = mood_indiv.index[start].replace(hour = 9), 
                       end = mood_indiv.index[end].replace(hour = 21),
-                      freq='180T'))
+                      freq= period))
     # No mood readings at midnight, 3, or 6am, so remove these periods
-    mood_indiv = mood_indiv[mood_indiv.index.hour>8]
+    if 'T' in period:
+        mood_indiv = mood_indiv[mood_indiv.index.hour>8]
+    
     mood_indiv.index = mood_indiv.index.rename('time')
     return mood_indiv
-def get_features_for_individual(current_indiv, feature_names):
+    
+    
+def get_features_for_individual(current_indiv, feature_names, period =  '180T'):
     # Features that we sum versus average over each time period
     avg_features = ['mood', 'circumplex.valence', 'circumplex.arousal']
     sum_features = [s for s in feature_names if s not in avg_features]
-    all_features = get_mood_and_create_time_index(current_indiv)
+    all_features = get_mood_and_create_time_index(current_indiv, period)
     # Create big data frame containing average daily values for all features
     # for this individual. Do this by joining in each individual feature
     for feature_name in feature_names[1:len(feature_names)]:
         feature_indiv = get_feature(feature_name, current_indiv)
         if feature_name in sum_features:
-            feature_indiv = feature_indiv.resample('180T', how='sum')
+            feature_indiv = feature_indiv.resample(period, how='sum')
         else:
-            feature_indiv = feature_indiv.resample('180T', how='mean')
-        feature_indiv = feature_indiv[feature_indiv.index.hour>8]
+            feature_indiv = feature_indiv.resample(period, how='mean')
+        if 'T' in period:
+            feature_indiv = feature_indiv[feature_indiv.index.hour>8]
         # Merge in current feature to big features list, on matching index (time)
         # Left join so that we keep all mood readings and fill missing with NaN
         all_features = pd.merge(all_features, feature_indiv, 
@@ -88,20 +101,25 @@ def get_features_for_individual(current_indiv, feature_names):
     all_features[sum_features] = all_features[sum_features].fillna(0)
     all_features[avg_features] = all_features[avg_features].interpolate()
     return all_features
+    
+    
+    
 # Make list of feature names, ensure mood is the first feature in the list
 feature_names = ['mood']+[v for v in big_df['variable'].unique() if v !='mood']
 # Make a big dictionary, each entry is df with all features for an individual
-features_all_indivs = {}
+features_all_indivs_per_hours = {}
+features_all_indivs_per_day = {}
+
 indiv_ids = big_df['id'].unique()
 for current_indiv in indiv_ids:
-    features_all_indivs[current_indiv] = \
+    features_all_indivs_per_day[current_indiv] = \
+        get_features_for_individual(current_indiv, feature_names,'D')
+    features_all_indivs_per_hours[current_indiv] = \
         get_features_for_individual(current_indiv, feature_names)
 #%%
 # Define some models
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor,\
-                             ExtraTreesRegressor
-from sklearn.linear_model import LinearRegression, SGDRegressor
-from sklearn.svm import SVR
+
+
 models = {}
 models['sgdlm'] = SGDRegressor(l1_ratio = .9)
 models['lm'] = LinearRegression()
@@ -117,7 +135,7 @@ models['extra_trees'] = ExtraTreesRegressor(n_estimators = 1000)
 '''
 This function gets us a big X matrix.
 Each row contains these values for each day:
-Days prior = 1,2,..,N
+Days prior = 1,2,..,N days we go back in time 
 Variable = mood, etc
 Hour = 9, 12, 15, 18, 21
 So that is, each row contains N * NumberOfVariables * 5 values
@@ -125,26 +143,38 @@ We can use these to predict the next day's average mood, which is returned as y
 '''
 days_prior = 3
 train_subset_propn = .7
+
 def get_benchmark_predictions(y, train_subset):
     y_bench = {}
     y_bench['mean'] = np.repeat(y[train_subset].mean(), len(y))
     y_bench['previous_day'] = \
         np.concatenate((y[train_subset].mean().reshape([1,]), y[0:-1]))
     return y_bench
-def get_feature_values_past_n_days(current_indiv, days_prior,
-                                   features_all_indivs = features_all_indivs):
-    df = features_all_indivs[current_indiv]
-    df['hour']=df.index.hour
-    df['date']=df.index.date
-    df = df.pivot(index='date', columns = 'hour')
-    df = df.dropna(axis = 'index')
-    #print 'Lost ' + str(df_size - len(df)) + ' row/s containing NaNs'
-    X = df.values[(days_prior-1):(len(df)-1),:]
+#%%     
+def get_feature_values_past_n_days(current_indiv, days_prior, features_all_indivs_per_hours = features_all_indivs_per_hours,features_all_indivs_per_day = features_all_indivs_per_day ):
+    df_hour = features_all_indivs_per_hours[current_indiv]
+    df_days = features_all_indivs_per_day[current_indiv]
+    
+    df_hour['hour']=df_hour.index.hour
+    df_hour['date']=df_hour.index.date    
+    df_hour = df_hour.pivot(index='date', columns = 'hour')
+    
+    df_hour = df_hour.dropna(axis = 'index')
+    df_days = df_days.dropna(axis = 'index')
+    
+    print df_hour.shape
+    print df_days.shape
+    
+    X = df_hour.values[(days_prior-1):(len(df_hour)-1),:]
     for i in range(2,days_prior+1):
-        X = np.hstack((X, df.values[(days_prior-i):(len(df)-i),:]))
+        X = np.hstack((X, df_days.values[(days_prior-i):(len(df_days)-i),:]))
     # Mean mood of each day
-    y = df['mood'].mean(axis=1).values[days_prior:]
+    y = df_hour['mood'].mean(axis=1).values[days_prior:]
     return X, y
+    
+#%%    
+    
+    
 scores = {}
 for current_indiv in indiv_ids:
     print 'predicting with individual model for ' + current_indiv
@@ -163,6 +193,8 @@ for current_indiv in indiv_ids:
                               models[model].predict(X[test_subset,:]))
     scores[current_indiv] = scores_indiv
 # Get all individuals data from the training set into one big X, y pair
+    
+#%%
 start = True
 for current_indiv in indiv_ids:
     X, y = get_feature_values_past_n_days(current_indiv, days_prior)
@@ -238,7 +270,7 @@ pd.DataFrame(imp.T, columns = models_with_importance)[0:50]
 #%%
 nn = NNModel(num_epochs = 5000, learnrate = .005, batchsize = 10, 
              width = [500, 300, 100, 50], normalise = True)
-nn.fit(bigX[big_train_subset,:],bigy[big_train_subset])
+nn.fit(bigX[big_train_subset,6:],bigy[big_train_subset])
 nnpreds = nn.predict(bigX[big_test_subset,:])
 print rmse(bigy[big_test_subset], nnpreds)
 print rmse(bigy[big_test_subset], 
@@ -268,32 +300,5 @@ def plot_series(individual, feature):
     plt.close(fig)
 for individual in indiv_ids:
     print individual
-    #plot_histogram(individual, 'mood')
-    #plot_series(individual, 'mood')
-#%%
-df = features_all_indivs[indiv_ids[0]][feature_names]
-df.reindex(pd.date_range(start = min(big_df['time']).replace(hour = 9, minute = 0, second = 0), 
-                      end = max(big_df['time']).replace(hour = 21),
-                      freq='180T'))
-df['counts'] = pd.Series(np.zeros(len(df.index)), index=df.index)
-#%%
-for user in indiv_ids[1:]:
-    temp = features_all_indivs[user][feature_names].dropna()
-    temp['counts'] = 1
-    df = df.add(temp, fill_value=0)
-df = df.div(df['counts'], axis = 'index')
-del df['counts']
-#%%
-lag = np.hstack((df.values[1:len(df),1].reshape((len(df)-1,1)), df.values[0:(len(df)-1),1:]))
-lagdf = pd.DataFrame(lag, columns = df.columns)
-#%%
-%pylab qt
-size = len(feature_names)
-corr = lagdf.corr()
-fig, ax = plt.subplots(figsize=(size, size))
-cax = ax.matshow(corr)
-fig.colorbar(cax, ticks=[-1, 0, 1])
-plt.xticks(range(len(corr.columns)), corr.columns);
-plt.yticks(range(len(corr.columns)), corr.columns);
-
-plt.show()
+    plot_histogram(individual, 'mood')
+    plot_series(individual, 'mood')
