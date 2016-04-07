@@ -125,7 +125,7 @@ Hour = 9, 12, 15, 18, 21
 So that is, each row contains N * NumberOfVariables * 5 values
 We can use these to predict the next day's average mood, which is returned as y
 '''
-days_prior = 3
+days_prior = 7
 train_subset_propn = .7
 def get_arima_predictions(y, train_subset, order = [1,0,0], X = None):
     if X == None:
@@ -183,8 +183,8 @@ for current_indiv in indiv_ids:
         models[model] = models[model].fit(X[train_subset,:], y[train_subset])
         scores_indiv[model] = rmse(y[test_subset], 
                               models[model].predict(X[test_subset,:]))
-    arima_preds = get_arima_predictions(y, train_subset, X = X)
-    scores_indiv['arima_exog'] = rmse(arima_preds[test_subset], y[test_subset])
+    #arima_preds = get_arima_predictions(y, train_subset, X = X)
+    #scores_indiv['arima_exog'] = rmse(arima_preds[test_subset], y[test_subset])
     scores[current_indiv] = scores_indiv
 # Get all individuals data from the training set into one big X, y pair
 start = True
@@ -352,6 +352,15 @@ def plot_acf_and_pacf(y):
     plt.show()
     plt.close()
 #%%
+from sklearn.decomposition import PCA
+pca = PCA()
+pca = pca.fit(features_all_indivs[indiv_ids[0]]
+              [[f for f in feature_names if 'appCat' in f]])
+# first 4 pc's explain 99% of variance :)
+z = pca.transform(features_all_indivs[indiv_ids[0]]
+          [[f for f in feature_names if 'appCat' in f]])
+
+    #%%
 for current_indiv in indiv_ids:
     print current_indiv
     y = get_feature_by_day('mood', current_indiv)
