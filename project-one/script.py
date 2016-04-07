@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import os
 
 # Read in data to big pandas df and setup time variable
-os.chdir('/home/liam/cloud/uni/dm/assign1/')
+os.chdir('C:/Users/Jaimy/Documents/UVA/Datamining/Data-Mining/project-one/data/')
 big_df = pd.read_csv('dataset_mood_smartphone.csv')
 big_df['time'] = pd.to_datetime(big_df['time'])
 #%%
@@ -101,7 +101,6 @@ for current_indiv in indiv_ids:
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor,\
                              ExtraTreesRegressor
 from sklearn.linear_model import LinearRegression, SGDRegressor
-import xgboost as xgb
 from sklearn.svm import SVR
 models = {}
 models['sgdlm'] = SGDRegressor(l1_ratio = .9)
@@ -271,3 +270,30 @@ for individual in indiv_ids:
     print individual
     #plot_histogram(individual, 'mood')
     #plot_series(individual, 'mood')
+#%%
+df = features_all_indivs[indiv_ids[0]][feature_names]
+df.reindex(pd.date_range(start = min(big_df['time']).replace(hour = 9, minute = 0, second = 0), 
+                      end = max(big_df['time']).replace(hour = 21),
+                      freq='180T'))
+df['counts'] = pd.Series(np.zeros(len(df.index)), index=df.index)
+#%%
+for user in indiv_ids[1:]:
+    temp = features_all_indivs[user][feature_names].dropna()
+    temp['counts'] = 1
+    df = df.add(temp, fill_value=0)
+df = df.div(df['counts'], axis = 'index')
+del df['counts']
+#%%
+lag = np.hstack((df.values[1:len(df),1].reshape((len(df)-1,1)), df.values[0:(len(df)-1),1:]))
+lagdf = pd.DataFrame(lag, columns = df.columns)
+#%%
+%pylab qt
+size = len(feature_names)
+corr = lagdf.corr()
+fig, ax = plt.subplots(figsize=(size, size))
+cax = ax.matshow(corr)
+fig.colorbar(cax, ticks=[-1, 0, 1])
+plt.xticks(range(len(corr.columns)), corr.columns);
+plt.yticks(range(len(corr.columns)), corr.columns);
+
+plt.show()
