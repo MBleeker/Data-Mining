@@ -47,37 +47,44 @@ def find_start_and_end_dates(series, num_nans = 4, max_crop = 100):
         elif found_nan_run:
             look_for_end = True
     return start, end
-def get_mood_and_create_time_index(current_indiv):
+    
+def get_mood_and_create_time_index(current_indiv, period = '180T'):
     ### Get average mood per day for a particular individual ###
     mood_indiv = get_feature('mood', current_indiv)
     # Get average per day
-    #mood_indiv = mood_indiv.resample('d', how='mean')
-    # Get average per 3 hour period
-    mood_indiv = mood_indiv.resample('180T', how='mean')
+    mood_indiv = mood_indiv.resample(period, how='mean')
     # Make sure we have every period covered over the 'core' date range
-    start, end = find_start_and_end_dates(mood_indiv['value'], 10)
-    mood_indiv = mood_indiv.reindex(
-        pd.date_range(start = mood_indiv.index[start].replace(hour = 9), 
-                      end = mood_indiv.index[end].replace(hour = 21),
-                      freq='180T'))
+    start, end = find_start_and_end_dates(mood_indiv['value'], 10)    
     # No mood readings at midnight, 3, or 6am, so remove these periods
-    mood_indiv = mood_indiv[mood_indiv.index.hour>8]
+    if 'T' in period:
+        mood_indiv = mood_indiv.reindex(
+            pd.date_range(start = mood_indiv.index[start].replace(hour = 9), 
+                      end = mood_indiv.index[end].replace(hour = 21),
+                      freq= period))
+        mood_indiv = mood_indiv[mood_indiv.index.hour>8]
+    
     mood_indiv.index = mood_indiv.index.rename('time')
     return mood_indiv
-def get_features_for_individual(current_indiv, feature_names):
+    
+def get_features_for_individual(current_indiv, feature_names, period = '180T'):
     # Features that we sum versus average over each time period
     avg_features = ['mood', 'circumplex.valence', 'circumplex.arousal']
-    sum_features = [s for s in feature_names if s not in avg_features]
-    all_features = get_mood_and_create_time_index(current_indiv)
+    count_features = [v for v in big_df['variable'].unique() if 'appCat' in v]
+    sum_features = [s for s in feature_names if s not in avg_features and s not in count_features]
+    all_features = get_mood_and_create_time_index(current_indiv, period)
     # Create big data frame containing average daily values for all features
     # for this individual. Do this by joining in each individual feature
     for feature_name in feature_names[1:len(feature_names)]:
         feature_indiv = get_feature(feature_name, current_indiv)
         if feature_name in sum_features:
-            feature_indiv = feature_indiv.resample('180T', how='sum')
+            feature_indiv = feature_indiv.resample(period, how='sum')
+        elif feature_name in count_features:
+            feature_indiv = feature_indiv.resample(period, how='count')
         else:
-            feature_indiv = feature_indiv.resample('180T', how='mean')
-        feature_indiv = feature_indiv[feature_indiv.index.hour>8]
+            feature_indiv = feature_indiv.resample(period, how='mean')
+            
+        if 'T' in period:
+            feature_indiv = feature_indiv[feature_indiv.index.hour>8]
         # Merge in current feature to big features list, on matching index (time)
         # Left join so that we keep all mood readings and fill missing with NaN
         all_features = pd.merge(all_features, feature_indiv, 
@@ -86,6 +93,7 @@ def get_features_for_individual(current_indiv, feature_names):
     all_features.columns = feature_names
     # Sum features: NaN -> 0, Avg features: NaN -> interpolate
     all_features[sum_features] = all_features[sum_features].fillna(0)
+    all_features[count_features] = all_features[count_features].fillna(0)
     all_features[avg_features] = all_features[avg_features].interpolate()
     return all_features
 # Make list of feature names, ensure mood is the first feature in the list
@@ -95,7 +103,7 @@ features_all_indivs = {}
 indiv_ids = big_df['id'].unique()
 for current_indiv in indiv_ids:
     features_all_indivs[current_indiv] = \
-        get_features_for_individual(current_indiv, feature_names)
+        get_features_for_individual(current_indiv, feature_names, 'D')
 #%%
 # Define some models
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor,\
@@ -271,18 +279,21 @@ for individual in indiv_ids:
     #plot_histogram(individual, 'mood')
     #plot_series(individual, 'mood')
 #%%
-df = features_all_indivs[indiv_ids[0]][feature_names]
-df.reindex(pd.date_range(start = min(big_df['time']).replace(hour = 9, minute = 0, second = 0), 
-                      end = max(big_df['time']).replace(hour = 21),
-                      freq='180T'))
-df['counts'] = pd.Series(np.zeros(len(df.index)), index=df.index)
-#%%
-for user in indiv_ids[1:]:
-    temp = features_all_indivs[user][feature_names].dropna()
-    temp['counts'] = 1
-    df = df.add(temp, fill_value=0)
-df = df.div(df['counts'], axis = 'index')
-del df['counts']
+def overall_average(period = '180T'):
+    df = features_all_indivs[indiv_ids[0]][feature_names]
+    if 'T' in period:
+        df.reindex(pd.date_range(start = min(big_df['time']).replace(hour = 9, minute = 0, second = 0), 
+                          end = max(big_df['time']).replace(hour = 21),
+                          freq='180T'))
+    df['counts'] = pd.Series(np.ones(len(df.index)), index=df.index)
+
+    for user in indiv_ids[1:]:
+        temp = features_all_indivs[user][feature_names].dropna()
+        temp['counts'] = 1
+        df = df.add(temp, fill_value=0)
+    df = df.div(df['counts'], axis = 'index')
+    del df['counts']
+    return df
 #%%
 lag = np.hstack((df.values[1:len(df),1].reshape((len(df)-1,1)), df.values[0:(len(df)-1),1:]))
 lagdf = pd.DataFrame(lag, columns = df.columns)
@@ -297,3 +308,11 @@ plt.xticks(range(len(corr.columns)), corr.columns);
 plt.yticks(range(len(corr.columns)), corr.columns);
 
 plt.show()
+#%%
+avg = overall_average('D')
+from sklearn.decomposition import PCA
+pca = PCA()
+app_features = [f for f in feature_names if 'appCat' in f]
+pca = pca.fit(avg[app_features])
+# first 4 pc's explain 99% of variance :)
+z = pca.transform(avg[app_features])
