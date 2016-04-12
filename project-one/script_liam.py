@@ -101,7 +101,7 @@ feature_names = ['mood']+[v for v in big_df['variable'].unique() if v !='mood']
 # Make a big dictionary, each entry is df with all features for an individual
 features_all_indivs = {}
 indiv_ids = big_df['id'].unique()
-period = 'D'
+period = '180T'
 for current_indiv in indiv_ids:
     features_all_indivs[current_indiv] = \
         get_features_for_individual(current_indiv, feature_names, period)
@@ -281,56 +281,62 @@ imp = np.vstack([[X_colnames[n] for n in
     for model in models_with_importance])
 pd.DataFrame(imp.T, columns = models_with_importance)[0:50]
 #%%
-def load_arima_preds(path = '/home/liam/cloud/uni/dm/assign1/'):
-    arima_preds = np.genfromtxt(path + 'arima_preds/arima_preds_' + \
-                                current_indiv + '.csv', delimiter = ',')[1:,1]
+def load_arima_preds(
+            path = '/home/liam/cloud/uni/dm/assign1/arima_preds/arima2_preds_'):
+    arima_preds = np.genfromtxt(path + current_indiv + '.csv', 
+                                delimiter = ',')[1:,1]
     return(arima_preds[(len(arima_preds) - \
                         len(predictions_big[current_indiv]['extra_trees'])):])
 # combined predictions
+scores_mixed = {}
 for current_indiv in indiv_ids:
+    scores_mixed[current_indiv] = {}
     X, y, _ = get_Xy(current_indiv, days_prior)
     tst_idxs = test_subset[current_indiv]
     # svr individual + extra trees big
-    scores[current_indiv]['svrInd_ext'] = rmse(y[tst_idxs],
+    scores_mixed[current_indiv]['svrInd_ext'] = rmse(y[tst_idxs],
                             (predictions_big[current_indiv]['extra_trees'] + \
                              predictions[current_indiv]['svr'])/2)
     # arima individual + extra trees big
     predictions[current_indiv]['arima'] = load_arima_preds()
-    scores[current_indiv]['arima_ext'] = rmse(y[tst_idxs],
+    scores_mixed[current_indiv]['arima_ext'] = rmse(y[tst_idxs],
                             (predictions_big[current_indiv]['extra_trees'] + \
                              predictions[current_indiv]['arima'])/2)
-    scores[current_indiv]['arima'] = rmse(y[tst_idxs],
+    scores_mixed[current_indiv]['arima'] = rmse(y[tst_idxs],
                                           predictions[current_indiv]['arima'])
-    scores_big[current_indiv]['avg_gbr_extress'] = \
+    scores_mixed[current_indiv]['avg_gbr_extress'] = \
         rmse(y[tst_idxs],
              (predictions_big[current_indiv]['extra_trees'] + \
               predictions_big[current_indiv]['gbr'] ) / 2 )
-    scores_big[current_indiv]['avg_extrees_bigsmall'] = \
+    scores_mixed[current_indiv]['avg_extrees_bigsmall'] = \
         rmse(y[tst_idxs],
              (predictions_big[current_indiv]['extra_trees'] + \
               predictions[current_indiv]['extra_trees'] ) / 2 )
-    scores_big[current_indiv]['avg_rf_extress'] = \
+    scores_mixed[current_indiv]['avg_rf_extress'] = \
         rmse(y[tst_idxs],
              (predictions_big[current_indiv]['extra_trees'] + \
               predictions_big[current_indiv]['rf'] ) / 2 )
-    scores_big[current_indiv]['avg_3tress'] = \
+    scores_mixed[current_indiv]['avg_3tress'] = \
         rmse(y[tst_idxs],
              (predictions_big[current_indiv]['extra_trees'] + \
               predictions_big[current_indiv]['rf'] + \
               predictions_big[current_indiv]['gbr'] ) / 3 )
-    scores_big[current_indiv]['avg_2tress_arima'] = \
+    scores_mixed[current_indiv]['avg_2tress_arima'] = \
         rmse(y[tst_idxs],
              (predictions_big[current_indiv]['extra_trees'] + \
               predictions_big[current_indiv]['rf'] + \
               predictions[current_indiv]['arima']) / 3 )
-#%%
+              
 # Plot some results
 #%pylab qt
 scores_df = pd.DataFrame.from_dict(scores, orient = 'index')
 scores_df_big = pd.DataFrame.from_dict(scores_big, orient = 'index')
-scores_df['kind'] = 'normal'
+scores_df_mixed = pd.DataFrame.from_dict(scores_mixed, orient = 'index')
+scores_df['kind'] = 'individual'
 scores_df_big['kind'] = 'big'
-scores_df = pd.concat([scores_df, scores_df_big])
-cols = {'normal': 'r', 'big': 'b'}
+scores_df_mixed['kind'] = 'mixed'
+scores_df = pd.concat([scores_df, scores_df_big, scores_df_mixed])
+cols = {'individual': 'o', 'big': 'b', 'mixed': 'g'}
 grouped = scores_df.groupby('kind').mean()
-grouped.transpose().plot(kind = 'bar', ylim = (0, 0.8))
+grouped.transpose().plot(kind = 'bar', ylim = (0.5, 0.6))
+print grouped
