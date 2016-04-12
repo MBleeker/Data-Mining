@@ -284,7 +284,7 @@ def overall_average(period = '180T'):
     if 'T' in period:
         df.reindex(pd.date_range(start = min(big_df['time']).replace(hour = 9, minute = 0, second = 0), 
                           end = max(big_df['time']).replace(hour = 21),
-                          freq='180T'))
+                          freq=period))
     df['counts'] = pd.Series(np.ones(len(df.index)), index=df.index)
 
     for user in indiv_ids[1:]:
