@@ -163,12 +163,17 @@ def get_Xy(current_indiv, days_prior, features_all_indivs=features_all_indivs,
         for i in range(num_pca_components):
             df['pca_var_' + str(i)] = pcomps[:,i]
         df = df.drop(pca_vars, axis = 1)
-    feature_names = [i + '_lag' + str(j) for j in range(1,days_prior+1)
-                     for i in df.columns]
     if 'T' in period:
+        feature_names = [i + '_h' + str(h) + '_lag' + str(j) 
+             for j in range(1, days_prior + 1)
+             for i in df.columns
+             for h in pd.unique(features_all_indivs[current_indiv].index.hour)]
         df['hour']=df.index.hour
         df['date']=df.index.date
         df = df.pivot(index='date', columns = 'hour')
+    else:
+        feature_names = [i + '_lag' + str(j) for j in range(1,days_prior+1)
+                         for i in df.columns]
     df = df.dropna(axis = 'index')
     #print 'Lost ' + str(df_size - len(df)) + ' row/s containing NaNs'
     X = df.values[(days_prior-1):(len(df)-1),:]
@@ -180,7 +185,6 @@ def get_Xy(current_indiv, days_prior, features_all_indivs=features_all_indivs,
     else:
         y = df['mood'].values[days_prior:]
     return X, y, feature_names
-    
 # Get RMSE for vector of predictions and vector of targets
 def rmse(y, pred):
     return np.sqrt(np.mean(np.power(y - pred, 2)))
