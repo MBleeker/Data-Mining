@@ -281,12 +281,11 @@ for model in models.keys():
     except AttributeError:
         None
 imp = np.vstack([[X_colnames[n] for n in 
-    np.argsort(-big_models[model].feature_importances_)]
-    for model in models_with_importance])
+                  np.argsort(-big_models[model].feature_importances_)]
+                 for model in models_with_importance])
 pd.DataFrame(imp.T, columns = models_with_importance)[0:50]
 #%%
-def load_arima_preds(
-            path = '/home/liam/cloud/uni/dm/assign1/arima_preds/arima2_preds_'):
+def load_arima_preds(path = os.getcwd() + '/arima_preds/arima2_preds_'):
     arima_preds = np.genfromtxt(path + current_indiv + '.csv', 
                                 delimiter = ',')[1:,1]
     return(arima_preds[(len(arima_preds) - \
