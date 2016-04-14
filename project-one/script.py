@@ -12,7 +12,7 @@ import os
 from statsmodels.tsa.arima_model import ARIMA
 
 # Read in data to big pandas df and setup time variable
-os.chdir('/home/liam/cloud/uni/dm/assign1/')
+os.chdir('/Users/Maurits/Documents/GitHub/School Projects/Data-Mining/project-one/data')
 big_df = pd.read_csv('dataset_mood_smartphone.csv')
 big_df['time'] = pd.to_datetime(big_df['time'])
 #%%
@@ -170,8 +170,7 @@ def get_lagged_feature_matrix_and_target_mood(current_indiv, days_prior,
 scores = {}
 for current_indiv in indiv_ids:
     print 'predicting with individual model for ' + current_indiv
-    X, y = get_lagged_feature_matrix_and_target_mood(current_indiv, days_prior)
-    train_size = np.int(train_subset_propn * len(y))
+    X, y = get_lagged_feature_matrix_and_target_mood(current_indiv, days_prior)    train_size = np.int(train_subset_propn * len(y))
     train_subset = np.arange(train_size)
     test_subset = np.arange(train_size,len(y))
     # Benchmark models of y
