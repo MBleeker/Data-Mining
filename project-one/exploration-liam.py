@@ -15,6 +15,7 @@ from sklearn.decomposition import PCA
 os.chdir('/home/liam/cloud/uni/dm/assign1/')
 big_df = pd.read_csv('dataset_mood_smartphone.csv')
 big_df['time'] = pd.to_datetime(big_df['time'])
+feature_names = ['mood']+[v for v in big_df['variable'].unique() if v !='mood']
 
 # Function to extract a particular feature for a particular individual
 def get_feature(feature_name, indiv_id, big_df = big_df):
@@ -23,10 +24,11 @@ def get_feature(feature_name, indiv_id, big_df = big_df):
     return feature.set_index(['time'])
 
 from scipy.stats import skew, kurtosis
-print big_df[big_df['variable']=='mood'][['value']].mean()
-print skew(big_df[big_df['variable']=='mood'][['value']])
-print kurtosis(big_df[big_df['variable']=='mood'][['value']])
-big_df[big_df['variable']=='mood'][['value']].hist()
+mood_all = big_df[big_df['variable']=='mood'][['value']]
+print mood_all.mean()
+print skew(mood_all)
+print kurtosis(mood_all)
+mood_all.hist()
 
 
 from statsmodels.tsa.stattools import acf, pacf
@@ -69,8 +71,28 @@ def plot_acf_and_pacf(y):
     plt.tight_layout()
     plt.show()
     plt.close()
-
+indiv_ids = big_df['id'].unique()
+#%%
+def plot_time_series(y):
+    y.plot(ylim=(0,10))
+    #plt.title('Mood Time Series for Subset of Individuals)
+    plt.show()
+    #plt.close()
+    
 for current_indiv in indiv_ids:
     print current_indiv
     y = get_feature_by_day('mood', current_indiv)
-    plot_acf_and_pacf(y)
+    #plot_acf_and_pacf(y)
+    #plot_time_series(y)
+    
+#%%
+
+num = len(indiv_ids)
+y = get_feature_by_day('mood', indiv_ids[0])
+cols = [indiv_ids[0]]
+for current_indiv in indiv_ids[1:num:1]:
+    y = pd.merge(y, get_feature_by_day('mood', current_indiv), left_index = True, 
+               right_index = True)#, how = 'outer')
+    cols.append(current_indiv)
+y.columns = cols
+plot_time_series(y)

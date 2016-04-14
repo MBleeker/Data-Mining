@@ -188,6 +188,7 @@ def get_Xy(current_indiv, days_prior, features_all_indivs=features_all_indivs,
 # Get RMSE for vector of predictions and vector of targets
 def rmse(y, pred):
     return np.sqrt(np.mean(np.power(y - pred, 2)))
+#%%
 scores = {}
 predictions = {}
 test_subset = {}
