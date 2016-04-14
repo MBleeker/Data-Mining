@@ -1,0 +1,50 @@
+appCat.builtin
+Duration of usage of builtin apps (time)
+
+appCat.communication
+Duration of usage of communication apps (time)
+
+
+appCat.entertainment
+Duration of usage of entertainment apps (time)
+
+
+appCat.finance
+Duration of usage of finance apps (time)
+
+
+appCat.game
+Duration of usage of game apps (time)
+
+
+appCat.office
+Duration of usage of office apps (time)
+
+
+appCat.other
+Duration of usage of other apps (time)
+
+
+appCat.social
+Duration of usage of social appappCat.social
+Duration of usage of social apps (time)
+
+ 
+appCat.travel
+Duration of usage of travel apps (time)
+
+
+appCat.unknown
+Duration of usage of unknown apps (time)
+
+
+appCat.utilities
+Duration of usage of utilities apps (time)
+
+
+
+
+
+appCat.weather
+Duration of usage of weather apps (time)
+
