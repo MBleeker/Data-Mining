@@ -76,23 +76,27 @@ indiv_ids = big_df['id'].unique()
 def plot_time_series(y):
     y.plot(ylim=(0,10))
     #plt.title('Mood Time Series for Subset of Individuals)
+    plt.legend().set_visible(False)
     plt.show()
+    plt.savefig('mood_time_series.png')
     #plt.close()
     
-for current_indiv in indiv_ids:
-    print current_indiv
-    y = get_feature_by_day('mood', current_indiv)
+#for current_indiv in indiv_ids:
+#    print current_indiv
+#    y = get_feature_by_day('mood', current_indiv)
     #plot_acf_and_pacf(y)
     #plot_time_series(y)
-    
-#%%
 
 num = len(indiv_ids)
 y = get_feature_by_day('mood', indiv_ids[0])
+y = y.reindex(pd.date_range(start = '2014-4-01', end = '2014-4-15', freq='D'))
+
 cols = [indiv_ids[0]]
-for current_indiv in indiv_ids[1:num:1]:
-    y = pd.merge(y, get_feature_by_day('mood', current_indiv), left_index = True, 
-               right_index = True)#, how = 'outer')
+for current_indiv in indiv_ids[1:num]:
+    y = pd.merge(y, get_feature_by_day('mood', current_indiv), 
+                 left_index = True, 
+               right_index = True, how = 'left')
     cols.append(current_indiv)
 y.columns = cols
+#y = y.reindex
 plot_time_series(y)

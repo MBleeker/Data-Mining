@@ -101,7 +101,7 @@ feature_names = ['mood']+[v for v in big_df['variable'].unique() if v !='mood']
 # Make a big dictionary, each entry is df with all features for an individual
 features_all_indivs = {}
 indiv_ids = big_df['id'].unique()
-period = '180T'
+period = 'D'
 for current_indiv in indiv_ids:
     features_all_indivs[current_indiv] = \
         get_features_for_individual(current_indiv, feature_names, period)
@@ -137,8 +137,6 @@ models['gbr'] = GradientBoostingRegressor(n_estimators=10000,
 models['svr'] = SVR()
 models['extra_trees'] = ExtraTreesRegressor(n_estimators = 1000)
 
-days_prior = 7
-train_subset_propn = .7
 def get_benchmark_predictions(y, train_subset):
     y_bench = {}
     y_bench['mean'] = np.repeat(y[train_subset].mean(), len(y))
@@ -189,6 +187,9 @@ def get_Xy(current_indiv, days_prior, features_all_indivs=features_all_indivs,
 def rmse(y, pred):
     return np.sqrt(np.mean(np.power(y - pred, 2)))
 #%%
+days_prior =1
+train_subset_propn = .7
+
 scores = {}
 predictions = {}
 test_subset = {}
@@ -344,3 +345,23 @@ cols = {'individual': 'o', 'big': 'b', 'mixed': 'g'}
 grouped = scores_df.groupby('kind').mean()
 grouped.transpose().plot(kind = 'bar', ylim = (0.5, 0.6))
 print grouped
+#%%
+err = {}
+ys = np.zeros((0,))
+preds = np.zeros((0,))
+for current_indiv in indiv_ids:
+    X, y, _ = get_Xy(current_indiv, days_prior)
+    tst_idxs = test_subset[current_indiv]
+    ys = np.hstack((ys, np.array(y[tst_idxs])))
+    preds = np.hstack((preds,
+                    np.array(predictions_big[current_indiv]['extra_trees'])))
+#rmse(preds, ys)
+s = rmse(preds, ys)
+from scipy import stats
+pd.DataFrame((preds - ys)).hist()
+n = len(preds)
+c1,c2 = stats.chi2.ppf([0.025,1-0.025],n)
+print (np.sqrt(n/c2)*s)
+print s
+print (np.sqrt(n/c1)*s)
+print (np.sqrt(n/c1)*s) - (np.sqrt(n/c2)*s)

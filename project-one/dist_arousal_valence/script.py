@@ -29,7 +29,8 @@ def get_feature(feature_name, big_df = big_df):
     
     
     
-    
+valence = get_feature('circumplex.valence')
+arousal = get_feature('circumplex.arousal')
 #%%
 mat = np.zeros((5,5))
 valence = valence.fillna(0)
@@ -41,7 +42,21 @@ for i in range(-2, 3):
 m = pd.DataFrame(mat)
 m.columns = [str(s) for s in range(-2, 3)]
 m.index = [str(s) for s in range(-2, 3)]
-fig, ax =plt.matshow(mat)
+
+fig, ax = plt.subplots()
+from matplotlib import cm
+cax = ax.imshow(mat, interpolation='nearest', cmap=cm.coolwarm)
+
+cbar = fig.colorbar(cax, ticks=[0, 250, 1200])
+cbar.ax.set_yticklabels([''])  # vertically oriented colorbar
+fig.savefig('test.png')
+#%%
+cax = ax.matshow(corr)
+fig.colorbar(cax, ticks=[-1, 0, 1])
+#%%
+fig = plt.matshow(mat)
+fig.colorbar(fig, ticks=[-1, 0, 1])
+#%%
 ax.set_xlim([2,-2])
 ax.set_ylim([-2,2])
 plt.show
