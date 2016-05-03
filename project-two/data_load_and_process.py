@@ -1,10 +1,21 @@
 import pandas as pd
 import numpy as np
 
-train_data_in = pd.read_csv('training_set_VU_DM_2014.csv')
-train_data_in['prop_log_historical_price'] = \
-    np.exp(train_data_in['prop_log_historical_price'])
-train_data_in['prop_log_historical_price'].replace(1, 0)
+#==============================================================================
+# # Code to create 10pct training subset
+# train_data_in = pd.read_csv('training_set_VU_DM_2014.csv')
+# train_data_in['prop_log_historical_price'] = \
+#     np.exp(train_data_in['prop_log_historical_price']).replace(1, 0)
+# np.random.seed(1)
+# train_subset = pd.unique(train_data_in['srch_id'])
+# train_subset = np.random.choice(train_subset, 
+#                                 size = int(len(train_subset) * 0.1), 
+#                                 replace = False)
+# train_idxs = train_data_in['srch_id'].isin(train_subset)
+# train_data_in[train_idxs].to_csv('training_set_VU_DM_2014_10pct.csv', 
+#                                  index = False)
+#==============================================================================
+train_data_in = pd.read_csv('training_set_VU_DM_2014_10pct.csv')
 #%%
 """
 Making a class to store all the training and test data.
@@ -12,8 +23,8 @@ I guess the idea is to have methods to preprocess the raw .csv data,
 and to pull out X and y training / test matrices.
 """
 class DataContainer:
-    def __init__(self, train_data = None, test_data = None, train_size = 50, 
-                 test_size = 50, test_propn=0.99):
+    def __init__(self, train_data = None, test_data = None, test_propn=0.98):
+        np.random.seed(1)
         self.train_data_full = train_data
         train_subset = pd.unique(self.train_data_full['srch_id'])
         train_subset = np.random.choice(train_subset, 
@@ -25,17 +36,6 @@ class DataContainer:
         self.train_data = self.train_data_full[train_idxs]
         self.test_data = self.train_data_full[test_idxs]
         self.preprocessed = False
-        self.null_cols = ['visitor_hist_starrating','visitor_hist_adr_usd',
-                          'prop_location_score2','srch_query_affinity_score',
-                          'orig_destination_distance', 
-                          'comp1_rate','comp1_inv','comp1_rate_percent_diff',
-                          'comp2_rate','comp2_inv','comp2_rate_percent_diff',
-                          'comp3_rate','comp3_inv','comp3_rate_percent_diff',
-                          'comp4_rate','comp4_inv','comp4_rate_percent_diff',
-                          'comp5_rate','comp5_inv','comp5_rate_percent_diff',
-                          'comp6_rate','comp6_inv','comp6_rate_percent_diff',
-                          'comp7_rate','comp7_inv','comp7_rate_percent_diff',
-                          'comp8_rate','comp8_inv','comp8_rate_percent_diff']
         self.comp_cols = ['comp1_rate','comp1_inv','comp1_rate_percent_diff',
                           'comp2_rate','comp2_inv','comp2_rate_percent_diff',
                           'comp3_rate','comp3_inv','comp3_rate_percent_diff',
@@ -44,6 +44,9 @@ class DataContainer:
                           'comp6_rate','comp6_inv','comp6_rate_percent_diff',
                           'comp7_rate','comp7_inv','comp7_rate_percent_diff',
                           'comp8_rate','comp8_inv','comp8_rate_percent_diff']
+        self.null_cols = ['visitor_hist_starrating','visitor_hist_adr_usd',
+                          'prop_location_score2','srch_query_affinity_score',
+                          'orig_destination_distance'] + self.comp_cols
         self.zero_cols = ['prop_starrating', 'prop_review_score', 
                           'prop_log_historical_price']
     def get_Xy(self):
@@ -85,7 +88,8 @@ class DataContainer:
                                            -99999999., False)
             for col in self.comp_cols:
                 data = self.fill_nulls(data, col, 0)
-            cols = [c for c in data.columns if '_rate' in c and '_diff' not in c]
+            cols = [c for c in data.columns \
+                    if '_rate' in c and '_diff' not in c]
             data['comp_rate'] = data[cols].sum(axis=1)
             cols = [c for c in data.columns if '_diff' in c]
             data['comp_rate_percent_diff'] = data[cols].sum(axis=1)
@@ -116,12 +120,10 @@ class DataContainer:
     def make_isnull_column(self, data, col_name, method = -1, 
                            is_zero_na = False):
         if is_zero_na:
-            data[col_name + '_isnull'] = \
-                data[col_name].values == 0
+            data[col_name + '_isnull'] = data[col_name].values == 0
             data = self.fill_zeroes(data, col_name, method)
         else:
-            data[col_name + '_isnull'] = \
-                np.isnan(data[col_name].values)
+            data[col_name + '_isnull'] = np.isnan(data[col_name].values)
             data = self.fill_nulls(data, col_name, method)
         return data
     def cat_to_prob(self, data, col_name):
@@ -158,10 +160,12 @@ class DataContainer:
                 self.train_data[col_name][self.train_data[col_name]!=0].mean())
         elif method == 'median':
             data[col_name] = data[col_name].replace(0, 
-                self.train_data[col_name][self.train_data[col_name]!=0].median())
+                self.train_data[col_name][\
+                    self.train_data[col_name]!=0].median())
         elif method == 'mode':
             data[col_name] = data[col_name].replace(0, 
-                self.train_data[col_name][self.train_data[col_name]!=0].mode()[0])
+                self.train_data[col_name][\
+                    self.train_data[col_name]!=0].mode()[0])
         elif method == 'min':
             data[col_name] = data[col_name].replace(0, 
                 self.train_data[col_name][self.train_data[col_name]!=0].min())
@@ -172,8 +176,7 @@ class DataContainer:
             data[col_name] = data[col_name].replace(0, method)
         return data
 
-d = DataContainer(train_data = train_data_in)
-d.get_downsampled_data(4)
-d.pp_data = d.preprocess(d.pp_data, option=0)
-d.test_data = d.preprocess(d.test_data, option=0)
-   
+d = DataContainer(train_data = train_data_in, test_propn=0.9)
+d.get_downsampled_data(4, propn = 0.5)
+d.pp_data = d.preprocess(d.pp_data, option=1)
+d.test_data = d.preprocess(d.test_data, option=1)

@@ -1,7 +1,7 @@
 from sklearn.ensemble import RandomForestRegressor
 
 models = {}
-models['rf'] = RandomForestRegressor(n_estimators = 1000)
+models['rf'] = RandomForestRegressor(n_estimators = 500)
 
 s = pd.unique(d.pp_data['srch_id'])
 train = s[0:int(len(s)/2)]
@@ -12,9 +12,11 @@ y_train = np.maximum(train_df['click_bool'].values,
                train_df['booking_bool'].values * 5)
 models['rf'].fit(X_train, y_train)
 test_df = d.test_data
-X_test = test_df.drop(d.drop_cols + ['pred_rel'], axis=1).values
-y_test = np.maximum(test_df['click_bool'].values, 
-               test_df['booking_bool'].values * 5)
+if 'pred_rel' in test_df.columns:
+    test_drops = d.drop_cols + ['pred_rel']
+else:
+    test_drops = d.drop_cols
+X_test = test_df.drop(test_drops, axis=1).values
 test_df['pred_rel'] = models['rf'].predict(X_test)
 grouped = test_df.groupby('srch_id')
 ndcgs = grouped.apply(lambda x: ndcg_of_table_chunk(x))
