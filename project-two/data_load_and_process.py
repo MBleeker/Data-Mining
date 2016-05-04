@@ -3,6 +3,8 @@ import numpy as np
 import time
 from make_predictions import *
 from sklearn.ensemble import RandomForestRegressor
+import query
+import lambda_rank
 
 #==============================================================================
 # # Code to create 10pct training subset
@@ -213,14 +215,14 @@ class DataContainer:
         return data
 
 d = DataContainer(train_data = train_data_in, test_propn=0.9)
-d.get_downsampled_data(4, propn = 1.0)
+d.get_downsampled_data(6, propn = .1)
 d.pp_data = d.preprocess(d.pp_data, option=1)
 d.test_data = d.preprocess(d.test_data, option=1)
 
 # Fit an RF model and predict test set
 # Got 0.4445 on the complete data set
-model_rf = RandomForestRegressor(n_estimators=1000)
-model_rf, imps_rf = make_predictions(d, model_rf)
+#model_rf = RandomForestRegressor(n_estimators=1000)
+#model_rf, imps_rf = make_predictions(d, model_rf)
 
 """
 # Predict missing value for 'prop_location_score2' and drop original column
@@ -244,3 +246,49 @@ d.drop_cols += ['prop_location_score2']
 model_rf = RandomForestRegressor(n_estimators=1000)
 model_rf, imps_rf = make_predictions(d, model_rf)
 """
+#%%
+def get_queries(df, drop_cols):
+    if 'pred_rel' in df.columns:
+        X = df.drop(drop_cols + ['pred_rel'], axis=1).astype('float32').values
+    else:
+        X = df.drop(drop_cols, axis=1).astype('float32').values
+    print X.shape
+    y = np.maximum(df['click_bool'].values, 
+                   df['booking_bool'].values * 5)
+    qry_ids = df['srch_id'].values
+    return Queries(X, y, qry_ids)
+
+queries_train = get_queries(d.pp_data, d.drop_cols)
+queries_test = get_queries(d.test_data, d.drop_cols)
+
+lr = 0.00001
+total_epochs = 50
+model = LambdaRank(24, 'LambdaRank', lr)
+model.train_with_queries(queries_train, total_epochs)
+
+# Function to get NDCG score of a model 'l_rank' trying to predict relevance 
+# scores for a set of queries 'qry_set'
+def get_predicted_relevance_nn(qry_set, l_rank):
+    qids = qry_set.get_qids()
+    init = False
+    for q in range(len(qids)):
+        test_query = qry_set.get_query(qids[q])
+        #print sum(test_query.get_labels())
+        scores = l_rank.score(test_query)
+        scores = np.array([scores[i][0] for i in range(len(scores))])
+        if not init:
+            scores_out = scores
+            init = True
+        else:
+            scores_out = np.hstack((scores_out, scores))
+        #print "ndcg = " + str(ndcg[q])
+    return scores_out
+
+preds = get_predicted_relevance_nn(queries_test, model)
+d.test_data['pred_rel'] = preds
+grouped = d.test_data.groupby('srch_id')
+ndcgs = grouped.apply(lambda x: ndcg_of_table_chunk(x))
+print 'mean NDCG over predicted test set:'
+print ndcgs.mean()
+print 'mean NDCG using random order (for comparison):'
+#%%print grouped.apply(lambda x: ndcg_of_table_chunk(x, random_order=True)).mean()
