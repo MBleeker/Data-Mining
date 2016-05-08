@@ -154,12 +154,13 @@ class QueryStream:
         return Query(qid_current, X_this_qry, y_this_qry)
 
     # read all queries from a file at once
-    def read_all(self):
+    def read_all(self, print_stuff = False):
         queries = {}
         index = 0
         for query in self:
-            if index % 100 == 0:
-                print "loaded ",index
+            if print_stuff:            
+                if index % 100 == 0:
+                    print "loaded ",index
             index += 1
             queries[query.get_qid()] = query
         return queries

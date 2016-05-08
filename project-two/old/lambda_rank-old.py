@@ -17,16 +17,9 @@ class LambdaRank:
     NUM_INSTANCES = count()
 
     def __init__(self, feature_count, mod_type = 'Pointwise', learn = 0.001,
-                 batch_size = 768, train_queries = None, width=[40,20,5],
-                 normalise = False, drop_input=0., drop_hidden=0.):
+                 batch_size = 768, train_queries = None):
         self.lr = learn
         self.sigma = 1.
-        self.drop_input = drop_input
-        self.drop_hidden = drop_hidden
-        self.x_mean_train, self.x_std_train, \
-            self.y_mean_train, self.y_std_train = 1., 1., 1., 1.
-        self.normalise = normalise
-        self.width = width
         self.model_type = mod_type
         self.feature_count = feature_count
         self.batch_size = batch_size
@@ -37,7 +30,6 @@ class LambdaRank:
         self.train_queries = train_queries
         if self.train_queries != None:
             self.init_uv_pairs()
-            self.calc_norm_constants()
         
     def init_uv_pairs(self):
         self.uv_pairs = {}
@@ -73,7 +65,6 @@ class LambdaRank:
         if train_queries != None:
             self.train_queries = train_queries
             self.init_uv_pairs()
-            self.calc_norm_constants()
         elif self.train_queries == None:
             print "You haven't provided any train queries yet!"
             raise
@@ -92,18 +83,14 @@ class LambdaRank:
 
     def score(self, query):
         feature_vectors = query.get_feature_vectors()
-        if self.normalise:
-            feature_vectors = self.normalise_X(feature_vectors)
         scores = self.iter_funcs['out'](feature_vectors)
         return scores
 
     def score_matrix(self, feature_vectors):
-        if self.normalise:
-            feature_vectors = self.normalise_X(feature_vectors)
         scores = self.iter_funcs['out'](feature_vectors)
         return scores
 
-    def build_model(self, input_dim, output_dim):
+    def build_model(self,input_dim, output_dim):
         """Create a symbolic representation of a neural network with `intput_dim`
         input nodes, `output_dim` output nodes and `num_hidden_units` per hidden
         layer.
@@ -114,24 +101,40 @@ class LambdaRank:
         A theano expression which represents such a network is returned.
         """
         print "input_dim:",input_dim, "output_dim:",output_dim
-        network = lasagne.layers.InputLayer(
-            shape=(self.batch_size, input_dim)
+        l_in = lasagne.layers.InputLayer(
+            shape=(self.batch_size, input_dim),
         )
-        if self.drop_input:
-            network = lasagne.layers.dropout(network, p=self.drop_input)
-        # Hidden layers and dropout:
-        hidden_nonlin = lasagne.nonlinearities.leaky_rectify
-        output_nonlin=lasagne.nonlinearities.linear
-        for layer in range(len(self.width)):
-            network = lasagne.layers.DenseLayer(
-                    network, self.width[layer], nonlinearity=hidden_nonlin)
-            if self.drop_hidden:
-                network = lasagne.layers.dropout(network, p=self.drop_hidden)
-        # Output layer:
-        network = lasagne.layers.DenseLayer(network, 
-                                    1, nonlinearity=output_nonlin)
-        return network
+
+        l_hid = lasagne.layers.DenseLayer(
+            l_in,
+            num_units=40,
+            nonlinearity=lasagne.nonlinearities.rectify,
+        )
+
+        l_hid = lasagne.layers.DenseLayer(
+            l_hid,
+            num_units=20,
+            nonlinearity=lasagne.nonlinearities.rectify,
+        )
+
+        l_hid = lasagne.layers.DenseLayer(
+            l_hid,
+            num_units=5,
+            nonlinearity=lasagne.nonlinearities.rectify,
+        )
+
+        l_out = lasagne.layers.DenseLayer(
+            l_hid,
+            num_units=output_dim,
+            nonlinearity=lasagne.nonlinearities.linear,
+        )
+
+        return l_out
+    def save_params(self):
+        pass
+    def load_params(self, fname):
         
+        pass
     # Create functions to be used by Theano for scoring and training
     def create_functions(self, output_layer, pointwise = False,
                           X_tensor_type=T.matrix, momentum=MOMENTUM,
@@ -146,9 +149,7 @@ class LambdaRank:
         output_row = lasagne.layers.get_output(output_layer, X_batch, dtype="float32")
         output = output_row.T
 
-        output_row_det = lasagne.layers.get_output(output_layer, 
-                                                   X_batch, deterministic=True,
-                                                   dtype="float32")
+        output_row_det = lasagne.layers.get_output(output_layer, X_batch,deterministic=True, dtype="float32")
 
         # I've somehow managed to 'invert' the pairwise models, such that higher
         # NN outputs (scores) = lower relevance. Rather than going into the details
@@ -214,15 +215,7 @@ class LambdaRank:
                 lambdas_out[u] += lambda_uv
                 lambdas_out[v] -= lambda_uv
         return lambdas_out
-    
-    def get_norm_constants(self):
-        return self.x_mean_train, self.x_std_train, \
-               self.y_mean_train, self.y_std_train
-    
-    def set_norm_constants(self, xm, xs, ym, ys):
-        self.x_mean_train, self.x_std_train, \
-            self.y_mean_train, self.y_std_train = xm, xs, ym, ys
-    
+        
     def train_once(self, X_train, query, labels):
         scores = self.score(query).flatten()[:len(labels)]
         qid = query.get_qid()
@@ -242,8 +235,6 @@ class LambdaRank:
 
     def train(self):
         X_trains = self.train_queries.get_feature_vectors()
-        if self.normalise:
-            X_trains = [self.normalise_X(X_qry) for X_qry in X_trains]
         queries = self.train_queries.values()
         for epoch in itertools.count(1):
             batch_train_losses = []
@@ -254,28 +245,25 @@ class LambdaRank:
                 labels = queries[random_index].get_labels()
                 batch_train_loss = self.train_once(X_trains[random_index],
                                                    queries[random_index], 
-                                                   labels)
+                                                    labels)
                 batch_train_losses.append(batch_train_loss)
             avg_train_loss = np.mean(batch_train_losses)
             yield {
                 'number': epoch,
                 'train_loss': avg_train_loss,
             }
-            
-    def calc_norm_constants(self):
-        stack = np.vstack(self.train_queries.get_feature_vectors())
-        self.x_mean_train = np.mean(stack, axis = 0)
-        self.x_std_train = np.std(stack, axis = 0)
-            
-    def normalise_X(self, X, reset = False):
-        X = X - self.x_mean_train
-        X = X / self.x_std_train
-        return X
-        
-    def normalise_y(self, y, reset = False):
-        y = y - self.y_mean_train
-        y = y / self.y_std_train
-        return y
-        
-    def denormalise_y(self, preds):
-        return self.y_mean_train + self.y_std_train * preds
+
+# Function to get NDCG score of a model 'l_rank' trying to predict relevance 
+# scores for a set of queries 'qry_set'
+def get_ndcg(qry_set, l_rank):
+    qids = qry_set.get_qids()
+    ndcg = np.zeros(len(qids))
+    for q in range(len(qids)):
+        test_query = qry_set.get_query(qids[q])
+        #print sum(test_query.get_labels())
+        scores = l_rank.score(test_query)
+        scores = np.array([scores[i][0] for i in range(len(scores))])
+        order = np.argsort(scores)
+        ndcg[q] = ndcg_at_k(test_query.get_labels()[order], 10)
+        #print "ndcg = " + str(ndcg[q])
+    return np.mean(ndcg)

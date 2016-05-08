@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 def dcg_at_k(relevances, k = 38):
     if np.sum(relevances) == 0:
@@ -21,8 +22,19 @@ def ndcg_at_k(relevances, k = 38):
 def ndcg_of_table_chunk(data, k = 38, random_order = False):
     if random_order:    
         data['pred_rel'] = np.random.rand(len(data))
-    data['pred_position'] = np.argsort(-data['pred_rel'])
-    data['relevance_score'] = np.maximum(data['click_bool'].values, 
-                                     data['booking_bool'].values * 5)
-    return ndcg_at_k(data['relevance_score'].\
-                     values[data['pred_position'].values])
+    order = np.argsort(-data['pred_rel'])
+    rels = np.maximum(data['click_bool'].values, data['booking_bool'].values * 5)
+    return ndcg_at_k(rels[order])
+
+def ndcg_of_df(df, plus_random = True):
+    now = time.time()
+    grouped = df.groupby('srch_id')
+    ndcg_mean = grouped.apply(lambda x: ndcg_of_table_chunk(x)).mean()
+    #print 'took ' + str(np.round((time.time()-now)/60,2)) + ' minutes ' + \
+    #    'to make predictions from model'
+    #print 'mean NDCG over predicted test set:'
+    #print ndcg_mean
+    if plus_random:
+        print 'mean NDCG using random order (for comparison):'
+        print grouped.apply(lambda x: ndcg_of_table_chunk(x, random_order=True)).mean()
+    return ndcg_mean
