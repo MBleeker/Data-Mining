@@ -142,6 +142,7 @@ class DataContainer:
             cols = [c for c in data.columns if '_inv' in c]
             data.loc[:,'comp_inv'] = data.loc[:,cols].sum(axis=1)
             self.drop_cols += self.comp_cols
+            data = self.position_estimation(data)
         return data
     def get_downsampled_data(self, ratio, propn = 0.01):
         subset = pd.unique(self.train_data['srch_id'])
@@ -256,10 +257,17 @@ class DataContainer:
         else:
             data.loc[:,colname] = data.loc[:,colname].replace(0, method)
         return data
+    # Estimate the position of a hotel based in its average position in that same destination.
+    def position_estimation(self, data):
+        gr = data.groupby(['srch_destination_id', 'prop_id'])
+        pos_est = gr.apply(lambda x: int(x['position'].mean()))
+        data = data.merge(pd.DataFrame(pos_est, columns = ['pos_est']), 
+                           right_index = True, left_on = ['srch_destination_id', 'prop_id'])
+        return data
 
 d = DataContainer(train_data=train_data_in, test_data=test_data_in,
                   null_cols_to_fill=null_cols_to_fill)
-d.get_downsampled_data(6, propn = 1.)
+d.get_downsampled_data(7, propn = 1.)
 d.pp_data = d.preprocess(d.pp_data, option=1)
 d.test_data = d.preprocess(d.test_data, option=1)
 #%%
@@ -285,3 +293,12 @@ preds = model_nn.score_matrix(d.get_Xyq('test', 'X'))
 d.test_data['pred_rel'] = preds
 result = ndcg_of_df(d.test_data, plus_random=False)
 print 'LambdaRank model NDCG: ', result
+#%%
+def position_estimation(data):
+    gr = data.groupby(['srch_destination_id', 'prop_id'])
+    pos_est = gr.apply(lambda x: int(x['position'].mean()))
+    data = data.merge(pd.DataFrame(pos_est, columns = ['pos_est']), 
+                       right_index = True, left_on = ['srch_destination_id', 'prop_id'])
+    return data
+
+temp = position_estimation(d.train_data)

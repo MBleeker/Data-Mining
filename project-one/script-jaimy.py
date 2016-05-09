@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import os
 
 # Read in data to big pandas df and setup time variable
-os.chdir('C:/Users/Jaimy/Documents/UVA/Datamining/Data-Mining/project-one/data/')
+os.chdir('D:/Jaimy/Documents/UVA/Datamining/Data-Mining/project-one/data/')
 big_df = pd.read_csv('dataset_mood_smartphone.csv')
 big_df['time'] = pd.to_datetime(big_df['time'])
 #%%
@@ -69,7 +69,7 @@ def get_mood_and_create_time_index(current_indiv, period = '180T'):
 def get_features_for_individual(current_indiv, feature_names, period = '180T'):
     # Features that we sum versus average over each time period
     avg_features = ['mood', 'circumplex.valence', 'circumplex.arousal']
-    count_features = [v for v in big_df['variable'].unique() if 'appCat' in v]
+    count_features = []#[v for v in big_df['variable'].unique() if 'appCat' in v]
     sum_features = [s for s in feature_names if s not in avg_features and s not in count_features]
     all_features = get_mood_and_create_time_index(current_indiv, period)
     # Create big data frame containing average daily values for all features
@@ -103,7 +103,7 @@ features_all_indivs = {}
 indiv_ids = big_df['id'].unique()
 for current_indiv in indiv_ids:
     features_all_indivs[current_indiv] = \
-        get_features_for_individual(current_indiv, feature_names, 'D')
+        get_features_for_individual(current_indiv, feature_names)
 #%%
 # Define some models
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor,\
@@ -298,14 +298,21 @@ def overall_average(period = '180T'):
 lag = np.hstack((df.values[1:len(df),1].reshape((len(df)-1,1)), df.values[0:(len(df)-1),1:]))
 lagdf = pd.DataFrame(lag, columns = df.columns)
 #%%
+df = overall_average()
+#%%
 %pylab qt
 size = len(feature_names)
-corr = lagdf.corr()
+corr = df.corr()
 fig, ax = plt.subplots(figsize=(size, size))
 cax = ax.matshow(corr)
 fig.colorbar(cax, ticks=[-1, 0, 1])
 plt.xticks(range(len(corr.columns)), corr.columns);
 plt.yticks(range(len(corr.columns)), corr.columns);
+font = {'family' : 'normal',
+        'weight' : 'normal',
+        'size'   : 22}
+
+matplotlib.rc('font', **font)
 
 plt.show()
 #%%
