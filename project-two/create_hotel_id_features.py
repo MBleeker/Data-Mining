@@ -7,7 +7,6 @@ Created on Fri May  6 12:51:37 2016
 import pandas as pd
 import numpy as np
 import time
-from make_predictions import *
 from sklearn.ensemble import RandomForestRegressor
 from query import *
 from lambda_rank import *
@@ -44,7 +43,6 @@ def stats_of_col_by_group(data, grouping_col_name, val_col_name):
     return data
 train_data_in = stats_of_col_by_group(train_data_in, 
                                       'prop_id', 'prop_location_score2')
-
 #%%
 dd = pd.DataFrame(sorted(train_data_in['prop_id'].unique()), 
                   columns = ['prop_id'])
