@@ -13,13 +13,20 @@ the entire training data (90% of it at least), and we don't want to calc this
 every time... null_cols_to_fill is a list of column names that have their
 missing values auto-filled by their overall mean.
 """
+
 null_cols_to_fill = []
+
+
 def merge_in_csv(data, fname):
     features = pd.read_csv(fname)
     # get names of columns containing at least one NaN...
     null_cols = features.columns[1:]
     data = data.merge(features, how='left')
     return data, null_cols
+
+
+
+
 train_data_in = pd.read_csv('train_set_10pct_of_90pct.csv')
 test_data_in = pd.read_csv('test_set_10pct.csv')
 train_data_in, null_cols_to_fill = merge_in_csv(train_data_in, 
@@ -67,6 +74,7 @@ class DataContainer:
             X = df.drop(self.drop_cols + ['pred_rel'], axis=1).values
         else:
             X = df.drop(self.drop_cols, axis=1).values
+
         y = np.maximum(df.loc[:,'click_bool'].values, 
                        df.loc[:,'booking_bool'].values * 5)
         q = df['srch_id'].values
@@ -157,6 +165,9 @@ class DataContainer:
             return d
         grouped = self.pp_data.groupby('srch_id')
         self.pp_data = grouped.apply(lambda x: downsample(x, ratio))
+
+
+
     def predict_missing(self, data, colname, pred_cols = None, n_trees = 100):
         now = time.time()
         not_missing = ~data['_missing_idxs_' + colname]
@@ -181,6 +192,11 @@ class DataContainer:
         print 'took ' + str(np.round((time.time()-now)/60,2)) + ' minutes ' + \
             'to fill in missing values for column: ' + colname
         return data
+
+
+    def predict_missing_with_knn(self, data, colname, pred_cols):
+
+        
     def make_isnull_column(self, data, colname, method = -1, 
                            is_zero_na = False):
         if is_zero_na:
