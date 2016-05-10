@@ -7,21 +7,32 @@ Created on Fri May  6 12:51:37 2016
 import pandas as pd
 import numpy as np
 import time
-from make_predictions import *
 from sklearn.ensemble import RandomForestRegressor
 from query import *
 from lambda_rank import *
 train_data_in = pd.read_csv('train_set_90pct.csv')
-#%%
+
+# A property ID must occur this many times to calculate a click through rate,
+# otherwise we just say it's NaN
+min_length = 10
+
+def avg_of_feature(x, min_length=10):
+    length = len(x)
+    if length > min_length:
+        return sum(x['click_bool'])*1./length
+    else:
+        return np.nan
+
 def cat_to_prob(data, col_name):
     grouped = data.groupby(col_name)
-    ctr = grouped.apply(lambda x: sum(x['click_bool'])*1./len(x))
+    ctr = grouped.apply(lambda x: avg_of_feature(x, min_length))
+    btr = grouped.apply(lambda x: avg_of_feature(x, min_length))
     data = data.merge(pd.DataFrame(ctr, columns = [col_name + '_ctr']), 
                        right_index = True, left_on = col_name)
-    btr = grouped.apply(lambda x: sum(x['booking_bool'])*1./len(x))
     data = data.merge(pd.DataFrame(btr, columns = [col_name + '_btr']), 
                        right_index = True, left_on = col_name)
     return data
+    
 train_data_in = cat_to_prob(train_data_in, 'prop_id')
 #%%
 def stats_of_col_by_group(data, grouping_col_name, val_col_name):
