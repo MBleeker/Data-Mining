@@ -9,6 +9,9 @@ The other 90% will be saved as the 'new' training set.
 train_data_in = pd.read_csv('training_set_VU_DM_2014.csv')
 train_data_in['prop_log_historical_price'] = \
     np.exp(train_data_in['prop_log_historical_price']).replace(1, 0)
+
+
+
 np.random.seed(0)
 train_subset = pd.unique(train_data_in['srch_id'])
 train_subset = np.random.choice(train_subset, 
