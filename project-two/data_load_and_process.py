@@ -1,10 +1,6 @@
 import pandas as pd
 import numpy as np
 import time
-from sklearn.ensemble import RandomForestRegressor
-from query import *
-from lambda_rank import *
-from theano_NN_model import *
 
 """
 This block of code reads in the data, and adds features like click-through and
@@ -16,23 +12,34 @@ missing values auto-filled by their overall mean.
 
 null_cols_to_fill = []
 
-
 def merge_in_csv(data, fname):
     features = pd.read_csv(fname)
     # get names of columns containing at least one NaN...
-    null_cols = features.columns[1:]
-    data = data.merge(features, how='left')
+    merge_cols = [c for c in features.columns if '_by_' not in c]
+    null_cols = [c for c in features.columns if c not in merge_cols]
+    if len(null_cols) > 1:
+        null_cols = [n for n in null_cols]
+    else:
+        null_cols = [null_cols[0]]
+    data = data.merge(features, how='left', 
+                      left_on = merge_cols, right_on = merge_cols)
     return data, null_cols
-
-
-
-
 train_data_in = pd.read_csv('train_set_10pct_of_90pct.csv')
 test_data_in = pd.read_csv('test_set_10pct.csv')
-train_data_in, null_cols_to_fill = merge_in_csv(train_data_in, 
-                                                'features_by_prop_id.csv')
-test_data_in, null_cols_to_fill = merge_in_csv(test_data_in, 
-                                               'features_by_prop_id.csv')
+train_data_in, nulls = merge_in_csv(train_data_in, 'features_by_prop_id.csv')
+null_cols_to_fill += nulls
+test_data_in, nulls = merge_in_csv(test_data_in, 'features_by_prop_id.csv')
+null_cols_to_fill += nulls
+train_data_in, nulls = merge_in_csv(train_data_in, 'features_by_srch_destination_id_and_prop_id.csv')
+null_cols_to_fill += nulls
+test_data_in, nulls = merge_in_csv(test_data_in, 'features_by_srch_destination_id_and_prop_id.csv')
+null_cols_to_fill += nulls
+train_data_in, nulls = merge_in_csv(train_data_in, 'features_by_srch_id.csv')
+null_cols_to_fill += nulls
+test_data_in, nulls = merge_in_csv(test_data_in, 'features_by_srch_id.csv')
+null_cols_to_fill += nulls
+null_cols_to_fill = list(set(null_cols_to_fill))
+
 """
 Class to store training and test data, preprocess it, pull out matrices, etc.
 """
@@ -110,7 +117,7 @@ class DataContainer:
                 data = self.fill_nulls(data, col)
             for col in self.zero_cols:
                 data = self.fill_zeroes(data, col)
-        if option == 1:
+        if option >= 1:
             for col in self.null_cols_to_fill:
                 data = self.fill_nulls(data, col)
             self.drop_cols += ['srch_id','date_time','click_bool','position',
@@ -131,7 +138,7 @@ class DataContainer:
             self.drop_cols.append('srch_destination_id')
             self.drop_cols.append('srch_query_affinity_score')
             data = self.make_isnull_column(data, 'orig_destination_distance',
-                                           -99999999., False)
+                                           'mean', False)
             for col in self.comp_cols:
                 data = self.fill_nulls(data, col, 0)
             cols = [c for c in data.columns \
@@ -142,7 +149,37 @@ class DataContainer:
             cols = [c for c in data.columns if '_inv' in c]
             data.loc[:,'comp_inv'] = data.loc[:,cols].sum(axis=1)
             self.drop_cols += self.comp_cols
-            data = self.position_estimation(data)
+            # sum isnull columns then drop the originals:
+            isnull_cols = [c for c in data.columns if '_isnull' in c]
+            data['num_nulls'] = data[isnull_cols].sum(axis = 1)
+            self.drop_cols += isnull_cols
+        if option == 2:
+            data['hour_of_day'] = pd.to_datetime(data['date_time'].values).hour
+            data = self.categorical_to_dummy(data, 'hour_of_day')
+            data['day_of_week'] = pd.to_datetime(data['date_time'].values).dayofweek
+            data = self.categorical_to_dummy(data, 'day_of_week')
+            data['price_normalised_mean'] = data['price_usd'] /\
+                                            data['price_usd_mean_by_srch_id']
+            data['price_normalised_median'] = data['price_usd'] /\
+                                            data['price_usd_median_by_srch_id']
+            data['price_normalised'] = \
+                (data['price_usd'] - data['price_usd_mean_by_srch_id']) / \
+                data['price_usd_std_by_srch_id']
+            data['price_hist_normalised_mean'] = data['prop_log_historical_price'] /\
+                                            data['price_usd_mean_by_srch_id']
+            data['price_hist_normalised_median'] = data['prop_log_historical_price'] /\
+                                            data['price_usd_median_by_srch_id']
+            data['price_hist_normalised'] = \
+                (data['prop_log_historical_price'] - data['price_usd_mean_by_srch_id']) / \
+                data['price_usd_std_by_srch_id']
+        return data
+    def categorical_to_dummy(self, data, col_name, remove_last_dummy=True, 
+                             drop_original_column=True):
+        dummy_matrix = pd.get_dummies(data[col_name]).values
+        for i in range(dummy_matrix.shape[1] - remove_last_dummy):
+            data[col_name + '_dum' + str(i)] = dummy_matrix[:,i]
+        if drop_original_column:
+            self.drop_cols.append(col_name)
         return data
     def get_downsampled_data(self, ratio, propn = 0.01):
         subset = pd.unique(self.train_data['srch_id'])
@@ -166,9 +203,6 @@ class DataContainer:
             return d
         grouped = self.pp_data.groupby('srch_id')
         self.pp_data = grouped.apply(lambda x: downsample(x, ratio))
-
-
-
     def predict_missing(self, data, colname, pred_cols = None, n_trees = 100):
         now = time.time()
         not_missing = ~data['_missing_idxs_' + colname]
@@ -192,12 +226,7 @@ class DataContainer:
             data.loc[not_missing,colname]
         print 'took ' + str(np.round((time.time()-now)/60,2)) + ' minutes ' + \
             'to fill in missing values for column: ' + colname
-        return data
-
-
-    def predict_missing_with_knn(self, data, colname, pred_cols):
-
-        
+        return data        
     def make_isnull_column(self, data, colname, method = -1, 
                            is_zero_na = False):
         if is_zero_na:
@@ -257,48 +286,11 @@ class DataContainer:
         else:
             data.loc[:,colname] = data.loc[:,colname].replace(0, method)
         return data
-    # Estimate the position of a hotel based in its average position in that same destination.
-    def position_estimation(self, data):
-        gr = data.groupby(['srch_destination_id', 'prop_id'])
-        pos_est = gr.apply(lambda x: int(x['position'].mean()))
-        data = data.merge(pd.DataFrame(pos_est, columns = ['pos_est']), 
-                           right_index = True, left_on = ['srch_destination_id', 'prop_id'])
-        return data
+    def get_used_columns(self):
+        return [c for c in self.pp_data.columns if c not in self.drop_cols]
 
 d = DataContainer(train_data=train_data_in, test_data=test_data_in,
                   null_cols_to_fill=null_cols_to_fill)
 d.get_downsampled_data(7, propn = 1.)
-d.pp_data = d.preprocess(d.pp_data, option=1)
-d.test_data = d.preprocess(d.test_data, option=1)
-#%%
-# Fit an RF model and predict test set
-# Got 0.4443 on the complete data set
-model_rf = RandomForestRegressor(n_estimators=100)
-model_rf.fit(*d.get_Xyq('train','Xy'))
-preds = model_rf.predict(d.get_Xyq('test','X'))
-d.test_data['pred_rel'] = preds
-result = ndcg_of_df(d.test_data, plus_random=True)
-print 'RF model NDCG: ', result
-#%%
-# Fit a LambdaRank model
-# Got .47 with 10 epochs and lr = 0.0001
-lr = 0.0001
-total_epochs = 10
-num_features = d.get_Xyq('test','X').shape[1]
-model_nn = LambdaRank(num_features, 'LambdaRank', lr, 
-                   train_queries=Queries(*d.get_Xyq('train')),
-                   width=[30,10], normalise=False, drop_hidden=0, drop_input=0)
-model_nn.train_with_queries(num_epochs=total_epochs)
-preds = model_nn.score_matrix(d.get_Xyq('test', 'X'))
-d.test_data['pred_rel'] = preds
-result = ndcg_of_df(d.test_data, plus_random=False)
-print 'LambdaRank model NDCG: ', result
-#%%
-def position_estimation(data):
-    gr = data.groupby(['srch_destination_id', 'prop_id'])
-    pos_est = gr.apply(lambda x: int(x['position'].mean()))
-    data = data.merge(pd.DataFrame(pos_est, columns = ['pos_est']), 
-                       right_index = True, left_on = ['srch_destination_id', 'prop_id'])
-    return data
-
-temp = position_estimation(d.train_data)
+d.pp_data = d.preprocess(d.pp_data, option=2)
+d.test_data = d.preprocess(d.test_data, option=2)
