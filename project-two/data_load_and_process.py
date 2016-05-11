@@ -181,6 +181,15 @@ class DataContainer:
         if drop_original_column:
             self.drop_cols.append(col_name)
         return data
+        
+    def normalise_price(self, data):
+        grouped = data.groupby('srch_id')
+        normalised_price = grouped.apply(lambda x: (sum(x['price'])/len(x['price'])))
+        data = data.merge(pd.DataFrame(normalised_price, columns = ['avg_price']), 
+                               right_index = True, left_on = "ID")
+        data['normalised_price'] = data['price'] / data['normalised_price']
+        return data
+
     def get_downsampled_data(self, ratio, propn = 0.01):
         subset = pd.unique(self.train_data['srch_id'])
         subset = np.random.choice(subset, size=int(len(subset) * propn), 
@@ -237,6 +246,7 @@ class DataContainer:
                 np.isnan(data.loc[:,colname].values)
             data = self.fill_nulls(data, colname, method)
         return data
+
     def cat_to_prob(self, data, colname):
         grouped = self.train_data.groupby(colname)
         ctr = grouped.apply(lambda x: sum(x['click_bool'])*1./len(x))
@@ -246,6 +256,7 @@ class DataContainer:
         data = data.merge(pd.DataFrame(btr, columns = [colname + '_btr']), 
                            right_index = True, left_on = colname)
         return data
+
     def fill_nulls(self, data, colname, method = 'mean'):
         if method == 'mean':
             data.loc[:,colname] = \
@@ -265,6 +276,7 @@ class DataContainer:
         else:
             data.loc[:,colname] = data.loc[:,colname].fillna(method)
         return data
+
     def fill_zeroes(self, data, colname, method = 'mean'):
         if method == 'mean':
             data.loc[:,colname] = data.loc[:,colname].replace(0, 
