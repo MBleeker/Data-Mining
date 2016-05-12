@@ -69,11 +69,13 @@ class LambdaRank:
         return s_uv
 
     # train_queries are what load_queries returns - implemented in query.py
-    def train_with_queries(self, train_queries = None, num_epochs = 1):
+    def train_with_queries(self, train_queries = None, num_epochs = 1,
+                           reset_norm_constants = True):
         if train_queries != None:
             self.train_queries = train_queries
             self.init_uv_pairs()
-            self.calc_norm_constants()
+            if reset_norm_constants:
+                self.calc_norm_constants()
         elif self.train_queries == None:
             print "You haven't provided any train queries yet!"
             raise

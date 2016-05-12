@@ -1,10 +1,6 @@
 import pandas as pd
 import numpy as np
 import time
-from sklearn.ensemble import RandomForestRegressor
-from query import *
-from lambda_rank import *
-from theano_NN_model import *
 
 """
 This block of code reads in the data, and adds features like click-through and
@@ -13,19 +9,37 @@ the entire training data (90% of it at least), and we don't want to calc this
 every time... null_cols_to_fill is a list of column names that have their
 missing values auto-filled by their overall mean.
 """
+
 null_cols_to_fill = []
+
 def merge_in_csv(data, fname):
     features = pd.read_csv(fname)
     # get names of columns containing at least one NaN...
-    null_cols = features.columns[1:]
-    data = data.merge(features, how='left')
+    merge_cols = [c for c in features.columns if '_by_' not in c]
+    null_cols = [c for c in features.columns if c not in merge_cols]
+    if len(null_cols) > 1:
+        null_cols = [n for n in null_cols]
+    else:
+        null_cols = [null_cols[0]]
+    data = data.merge(features, how='left', 
+                      left_on = merge_cols, right_on = merge_cols)
     return data, null_cols
 train_data_in = pd.read_csv('train_set_10pct_of_90pct.csv')
 test_data_in = pd.read_csv('test_set_10pct.csv')
-train_data_in, null_cols_to_fill = merge_in_csv(train_data_in, 
-                                                'features_by_prop_id.csv')
-test_data_in, null_cols_to_fill = merge_in_csv(test_data_in, 
-                                               'features_by_prop_id.csv')
+train_data_in, nulls = merge_in_csv(train_data_in, 'features_by_prop_id.csv')
+null_cols_to_fill += nulls
+test_data_in, nulls = merge_in_csv(test_data_in, 'features_by_prop_id.csv')
+null_cols_to_fill += nulls
+train_data_in, nulls = merge_in_csv(train_data_in, 'features_by_srch_destination_id_and_prop_id.csv')
+null_cols_to_fill += nulls
+test_data_in, nulls = merge_in_csv(test_data_in, 'features_by_srch_destination_id_and_prop_id.csv')
+null_cols_to_fill += nulls
+train_data_in, nulls = merge_in_csv(train_data_in, 'features_by_srch_id.csv')
+null_cols_to_fill += nulls
+test_data_in, nulls = merge_in_csv(test_data_in, 'features_by_srch_id.csv')
+null_cols_to_fill += nulls
+null_cols_to_fill = list(set(null_cols_to_fill))
+
 """
 Class to store training and test data, preprocess it, pull out matrices, etc.
 """
@@ -67,6 +81,7 @@ class DataContainer:
             X = df.drop(self.drop_cols + ['pred_rel'], axis=1).values
         else:
             X = df.drop(self.drop_cols, axis=1).values
+
         y = np.maximum(df.loc[:,'click_bool'].values, 
                        df.loc[:,'booking_bool'].values * 5)
         q = df['srch_id'].values
@@ -108,8 +123,8 @@ class DataContainer:
             for col in self.zero_cols:
                 data = self.fill_zeroes(data, col)
         #----------------------------------------------------------------------
-        if option == 1:
-            # Fill given columns with their mean value.
+        if option >= 1:
+			# Fill given columns with their mean value.
             for col in self.null_cols_to_fill:
                 data = self.fill_nulls(data, col)
             # Drop these columns for they miss too much data or isn't useful
@@ -132,7 +147,7 @@ class DataContainer:
             self.drop_cols.append('srch_destination_id')
             self.drop_cols.append('srch_query_affinity_score')
             data = self.make_isnull_column(data, 'orig_destination_distance',
-                                           -99999999., False)
+                                           'mean', False)
             # Fill all the competition data with 0 (means no competition)
             for col in self.comp_cols:
                 data = self.fill_nulls(data, col, 0)
@@ -149,7 +164,31 @@ class DataContainer:
             data = self.position_estimation(data)
         #----------------------------------------------------------------------
         if option == 2:
-            # Fill given columns with their mean value.
+            # sum isnull columns then drop the originals:
+            isnull_cols = [c for c in data.columns if '_isnull' in c]
+            data['num_nulls'] = data[isnull_cols].sum(axis = 1)
+            self.drop_cols += isnull_cols
+        if option == 3:
+            data['hour_of_day'] = pd.to_datetime(data['date_time'].values).hour
+            data = self.categorical_to_dummy(data, 'hour_of_day')
+            data['day_of_week'] = pd.to_datetime(data['date_time'].values).dayofweek
+            data = self.categorical_to_dummy(data, 'day_of_week')
+            data['price_normalised_mean'] = data['price_usd'] /\
+                                            data['price_usd_mean_by_srch_id']
+            data['price_normalised_median'] = data['price_usd'] /\
+                                            data['price_usd_median_by_srch_id']
+            data['price_normalised'] = \
+                (data['price_usd'] - data['price_usd_mean_by_srch_id']) / \
+                data['price_usd_std_by_srch_id']
+            data['price_hist_normalised_mean'] = data['prop_log_historical_price'] /\
+                                            data['price_usd_mean_by_srch_id']
+            data['price_hist_normalised_median'] = data['prop_log_historical_price'] /\
+                                            data['price_usd_median_by_srch_id']
+            data['price_hist_normalised'] = \
+                (data['prop_log_historical_price'] - data['price_usd_mean_by_srch_id']) / \
+                data['price_usd_std_by_srch_id']
+		if option == 4:
+			# Fill given columns with their mean value.
             for col in self.null_cols_to_fill:
                 data = self.fill_nulls(data, col)
             # This option fills in the data with the worst case scenario
@@ -183,8 +222,24 @@ class DataContainer:
             self.drop_cols += self.comp_cols
             # Create a column that represents the estimation of the position of a hotel
             data = self.position_estimation(data)
-            
         return data
+    def categorical_to_dummy(self, data, col_name, remove_last_dummy=True, 
+                             drop_original_column=True):
+        dummy_matrix = pd.get_dummies(data[col_name]).values
+        for i in range(dummy_matrix.shape[1] - remove_last_dummy):
+            data[col_name + '_dum' + str(i)] = dummy_matrix[:,i]
+        if drop_original_column:
+            self.drop_cols.append(col_name)
+        return data
+        
+    def normalise_price(self, data):
+        grouped = data.groupby('srch_id')
+        normalised_price = grouped.apply(lambda x: (sum(x['price'])/len(x['price'])))
+        data = data.merge(pd.DataFrame(normalised_price, columns = ['avg_price']), 
+                               right_index = True, left_on = "ID")
+        data['normalised_price'] = data['price'] / data['normalised_price']
+        return data
+
     def get_downsampled_data(self, ratio, propn = 0.01):
         subset = pd.unique(self.train_data['srch_id'])
         subset = np.random.choice(subset, size=int(len(subset) * propn), 
@@ -230,7 +285,7 @@ class DataContainer:
             data.loc[not_missing,colname]
         print 'took ' + str(np.round((time.time()-now)/60,2)) + ' minutes ' + \
             'to fill in missing values for column: ' + colname
-        return data
+        return data        
     def make_isnull_column(self, data, colname, method = -1, 
                            is_zero_na = False):
         if is_zero_na:
@@ -241,6 +296,7 @@ class DataContainer:
                 np.isnan(data.loc[:,colname].values)
             data = self.fill_nulls(data, colname, method)
         return data
+
     def cat_to_prob(self, data, colname):
         grouped = self.train_data.groupby(colname)
         ctr = grouped.apply(lambda x: sum(x['click_bool'])*1./len(x))
@@ -250,6 +306,7 @@ class DataContainer:
         data = data.merge(pd.DataFrame(btr, columns = [colname + '_btr']), 
                            right_index = True, left_on = colname)
         return data
+
     def fill_nulls(self, data, colname, method = 'mean'):
         if method == 'mean':
             data.loc[:,colname] = \
@@ -269,6 +326,7 @@ class DataContainer:
         else:
             data.loc[:,colname] = data.loc[:,colname].fillna(method)
         return data
+
     def fill_zeroes(self, data, colname, method = 'mean'):
         if method == 'mean':
             data.loc[:,colname] = data.loc[:,colname].replace(0, 
@@ -290,50 +348,11 @@ class DataContainer:
         else:
             data.loc[:,colname] = data.loc[:,colname].replace(0, method)
         return data
-    # Estimate the position of a hotel based in its average position in that same destination.
-    def position_estimation(self, data):
-        gr = data.groupby(['srch_destination_id', 'prop_id'])
-        pos_est = gr.apply(lambda x: int(x['position'].mean()))
-        data = data.merge(pd.DataFrame(pos_est, columns = ['pos_est']), 
-                           right_index = True, left_on = ['srch_destination_id', 'prop_id'])
-        return data
+    def get_used_columns(self):
+        return [c for c in self.pp_data.columns if c not in self.drop_cols]
 
 d = DataContainer(train_data=train_data_in, test_data=test_data_in,
                   null_cols_to_fill=null_cols_to_fill)
-d.get_downsampled_data(6, propn = 1.)
+d.get_downsampled_data(7, propn = 1.)
 d.pp_data = d.preprocess(d.pp_data, option=2)
 d.test_data = d.preprocess(d.test_data, option=2)
-#%%
-# Fit an RF model and predict test set
-# Got 0.4443 on the complete data set
-def RF_model(d):
-    model_rf = RandomForestRegressor(n_estimators=100)
-    model_rf.fit(*d.get_Xyq('train','Xy'))
-    preds = model_rf.predict(d.get_Xyq('test','X'))
-    d.test_data['pred_rel'] = preds
-    result = ndcg_of_df(d.test_data, plus_random=True)
-    print 'RF model NDCG: ', result
-    return result
-
-# Fit a LambdaRank model
-# Got .47 with 10 epochs and lr = 0.0001
-def LR_model(d, lr, total_epochs):
-    num_features = d.get_Xyq('test','X').shape[1]
-    model_nn = LambdaRank(num_features, 'LambdaRank', lr, 
-                       train_queries=Queries(*d.get_Xyq('train')),
-                       width=[30,10], normalise=False, drop_hidden=0, drop_input=0)
-    model_nn.train_with_queries(num_epochs=total_epochs)
-    preds = model_nn.score_matrix(d.get_Xyq('test', 'X'))
-    d.test_data['pred_rel'] = preds
-    result = ndcg_of_df(d.test_data, plus_random=False)
-    print 'LambdaRank model NDCG: ', result
-    return result
-#%%
-lr = 0.0001
-total_epochs = 10
-results = []
-
-for i in range(10):
-    r = LR_model(d, lr, total_epochs)
-    results.append(r)
-print 'mean LambdaRank model NDCG: ', results
