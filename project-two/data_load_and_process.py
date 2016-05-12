@@ -89,43 +89,54 @@ class DataContainer:
         data.loc[:,'prop_review_score'] = \
             data.loc[:,'prop_review_score'].fillna(0)
         self.drop_cols = []
+        # Standard columns we do not use.
         self.drop_cols += ['srch_id','date_time','click_bool','position',
                            'booking_bool','gross_bookings_usd']
+        # Add a column stating for every column containing a NaN if the value is NaN 
         for col in self.null_cols:
             data.loc[:,'_missing_idxs_' + col] = data.loc[:,col].isnull()
             self.drop_cols += ['_missing_idxs_' + col]
+        # Do the same with zeroes
         for col in self.zero_cols:
             data.loc[:,'_missing_idxs_' + col] = (data.loc[:,col] == 0)
             self.drop_cols += ['_missing_idxs_' + col]
+        #----------------------------------------------------------------------
         if option == 0:
+            # Fill all the missing info with the mean values.
             for col in self.null_cols:
                 data = self.fill_nulls(data, col)
             for col in self.zero_cols:
                 data = self.fill_zeroes(data, col)
+        #----------------------------------------------------------------------
         if option == 1:
+            # Fill given columns with their mean value.
             for col in self.null_cols_to_fill:
                 data = self.fill_nulls(data, col)
-            self.drop_cols += ['srch_id','date_time','click_bool','position',
-                               'booking_bool','gross_bookings_usd']
+            # Drop these columns for they miss too much data or isn't useful
             self.drop_cols.append('visitor_location_country_id')
             self.drop_cols.append('visitor_hist_starrating')
             self.drop_cols.append('visitor_hist_adr_usd')
             self.drop_cols.append('prop_country_id')
             self.drop_cols.append('prop_id')
+            # Make a column that states if a column contains a null value
             data = self.make_isnull_column(data, 'prop_starrating', 'mean', 
                                            True)
             data = self.make_isnull_column(data, 'prop_review_score', 'mean', 
                                            True)
             data = self.fill_nulls(data, 'prop_location_score2')
+            # When a historic price is missing, fill it with the current price
             price_replace_idxs = data['prop_log_historical_price']==0
             data.loc[price_replace_idxs,'prop_log_historical_price']= \
                                        data.loc[price_replace_idxs,'price_usd']
+            # These columns do not contain information
             self.drop_cols.append('srch_destination_id')
             self.drop_cols.append('srch_query_affinity_score')
             data = self.make_isnull_column(data, 'orig_destination_distance',
                                            -99999999., False)
+            # Fill all the competition data with 0 (means no competition)
             for col in self.comp_cols:
                 data = self.fill_nulls(data, col, 0)
+            # Sum all the competitor data into 3 columns
             cols = [c for c in data.columns \
                     if '_rate' in c and '_diff' not in c]
             data.loc[:,'comp_rate'] = data.loc[:,cols].sum(axis=1)
@@ -134,7 +145,45 @@ class DataContainer:
             cols = [c for c in data.columns if '_inv' in c]
             data.loc[:,'comp_inv'] = data.loc[:,cols].sum(axis=1)
             self.drop_cols += self.comp_cols
+            # Create a column that represents the estimation of the position of a hotel
             data = self.position_estimation(data)
+        #----------------------------------------------------------------------
+        if option == 2:
+            # Fill given columns with their mean value.
+            for col in self.null_cols_to_fill:
+                data = self.fill_nulls(data, col)
+            # This option fills in the data with the worst case scenario
+            data = self.fill_nulls(data, 'prop_starrating', 1)
+            data = self.fill_nulls(data, 'prop_review_score', 1)
+            data = self.fill_nulls(data, 'prop_location_score2', 'min')
+            data = self.fill_nulls(data, 'srch_query_affinity_score', 'min')
+            data = self.fill_nulls(data, 'orig_destination_distance', 'max')
+            # Still drop the user historical data
+            self.drop_cols.append('visitor_location_country_id')
+            self.drop_cols.append('visitor_hist_starrating')
+            self.drop_cols.append('visitor_hist_adr_usd')
+            self.drop_cols.append('prop_country_id')
+            self.drop_cols.append('srch_destination_id')
+            self.drop_cols.append('prop_id')
+            # When a historic price is missing, fill it with the current price
+            price_replace_idxs = data['prop_log_historical_price']==0
+            data.loc[price_replace_idxs,'prop_log_historical_price']= \
+                                       data.loc[price_replace_idxs,'price_usd']
+            # Fill all the competition data with 0 (means no competition)
+            for col in self.comp_cols:
+                data = self.fill_nulls(data, col, 0)
+            # Sum all the competitor data into 3 columns
+            cols = [c for c in data.columns \
+                    if '_rate' in c and '_diff' not in c]
+            data.loc[:,'comp_rate'] = data.loc[:,cols].sum(axis=1)
+            cols = [c for c in data.columns if '_diff' in c]
+            data.loc[:,'comp_rate_percent_diff'] = data[cols].sum(axis=1)
+            cols = [c for c in data.columns if '_inv' in c]
+            data.loc[:,'comp_inv'] = data.loc[:,cols].sum(axis=1)
+            self.drop_cols += self.comp_cols
+            # Create a column that represents the estimation of the position of a hotel
+            data = self.position_estimation(data)
+            
         return data
     def get_downsampled_data(self, ratio, propn = 0.01):
         subset = pd.unique(self.train_data['srch_id'])
@@ -251,38 +300,40 @@ class DataContainer:
 
 d = DataContainer(train_data=train_data_in, test_data=test_data_in,
                   null_cols_to_fill=null_cols_to_fill)
-d.get_downsampled_data(7, propn = 1.)
-d.pp_data = d.preprocess(d.pp_data, option=1)
-d.test_data = d.preprocess(d.test_data, option=1)
+d.get_downsampled_data(6, propn = 1.)
+d.pp_data = d.preprocess(d.pp_data, option=2)
+d.test_data = d.preprocess(d.test_data, option=2)
 #%%
 # Fit an RF model and predict test set
 # Got 0.4443 on the complete data set
-model_rf = RandomForestRegressor(n_estimators=100)
-model_rf.fit(*d.get_Xyq('train','Xy'))
-preds = model_rf.predict(d.get_Xyq('test','X'))
-d.test_data['pred_rel'] = preds
-result = ndcg_of_df(d.test_data, plus_random=True)
-print 'RF model NDCG: ', result
-#%%
+def RF_model(d):
+    model_rf = RandomForestRegressor(n_estimators=100)
+    model_rf.fit(*d.get_Xyq('train','Xy'))
+    preds = model_rf.predict(d.get_Xyq('test','X'))
+    d.test_data['pred_rel'] = preds
+    result = ndcg_of_df(d.test_data, plus_random=True)
+    print 'RF model NDCG: ', result
+    return result
+
 # Fit a LambdaRank model
 # Got .47 with 10 epochs and lr = 0.0001
+def LR_model(d, lr, total_epochs):
+    num_features = d.get_Xyq('test','X').shape[1]
+    model_nn = LambdaRank(num_features, 'LambdaRank', lr, 
+                       train_queries=Queries(*d.get_Xyq('train')),
+                       width=[30,10], normalise=False, drop_hidden=0, drop_input=0)
+    model_nn.train_with_queries(num_epochs=total_epochs)
+    preds = model_nn.score_matrix(d.get_Xyq('test', 'X'))
+    d.test_data['pred_rel'] = preds
+    result = ndcg_of_df(d.test_data, plus_random=False)
+    print 'LambdaRank model NDCG: ', result
+    return result
+#%%
 lr = 0.0001
 total_epochs = 10
-num_features = d.get_Xyq('test','X').shape[1]
-model_nn = LambdaRank(num_features, 'LambdaRank', lr, 
-                   train_queries=Queries(*d.get_Xyq('train')),
-                   width=[30,10], normalise=False, drop_hidden=0, drop_input=0)
-model_nn.train_with_queries(num_epochs=total_epochs)
-preds = model_nn.score_matrix(d.get_Xyq('test', 'X'))
-d.test_data['pred_rel'] = preds
-result = ndcg_of_df(d.test_data, plus_random=False)
-print 'LambdaRank model NDCG: ', result
-#%%
-def position_estimation(data):
-    gr = data.groupby(['srch_destination_id', 'prop_id'])
-    pos_est = gr.apply(lambda x: int(x['position'].mean()))
-    data = data.merge(pd.DataFrame(pos_est, columns = ['pos_est']), 
-                       right_index = True, left_on = ['srch_destination_id', 'prop_id'])
-    return data
+results = []
 
-temp = position_estimation(d.train_data)
+for i in range(10):
+    r = LR_model(d, lr, total_epochs)
+    results.append(r)
+print 'mean LambdaRank model NDCG: ', results
